@@ -11,6 +11,7 @@ public class StoneCarver : MonoBehaviour
 	[SerializeField] ParticleSystem waterEffect;
 	[SerializeField] float waterRange = 20.0f;
 	[SerializeField] float waterDistance = 3f;
+	[SerializeField] private ParticleSystem waterSplashEffect;
 
 	[Header("石を削る設定")]
 	[SerializeField] float carveRadius = 0.25f;
@@ -25,6 +26,10 @@ public class StoneCarver : MonoBehaviour
 	[SerializeField] string clearSceneName = "ClearScene";
 
 	[SerializeField] private ParticleSystem stoneBreakEffect;
+
+	[SerializeField] private AudioSource waterAudio;
+	[SerializeField] private AudioSource carvingAudio;
+	[SerializeField] private AudioSource clearAudio;
 
 	// 石の残量がこの割合以下になったらクリア
 	[SerializeField, Range(0.001f, 0.3f)]
@@ -41,6 +46,10 @@ public class StoneCarver : MonoBehaviour
 
 	void Start()
 	{
+		GameTimer.StartTimer();
+
+		transform.localScale *= DefficultManager.GetStoneScale();
+
 		mainCamera = Camera.main;
 		meshCollider = GetComponent<MeshCollider>();
 
@@ -97,13 +106,9 @@ public class StoneCarver : MonoBehaviour
 				// 自然なランダム凹凸
 				float seedOffset = rockSeed * 0.013f;
 
-				float noise = Mathf.PerlinNoise(
-					(v[i].x + seedOffset) * 4.7f,
-					(v[i].y + seedOffset) * 4.7f
-				);
+				float noise = Mathf.PerlinNoise((v[i].x + seedOffset) * 4.7f,(v[i].y + seedOffset) * 4.7f);
 
-				float radius =
-					1f + (noise - 0.5f) * 2f * roughness;
+				float radius = 1f + (noise - 0.5f) * 2f * roughness;
 
 				v[i] *= radius;
 			}
@@ -140,10 +145,7 @@ public class StoneCarver : MonoBehaviour
 			{
 				int i = y * (segments + 1) + x;
 
-				uvs[i] = new Vector2(
-					(float)x / segments,
-					(float)y / rings
-				);
+				uvs[i] = new Vector2((float)x / segments,(float)y / rings);
 			}
 		}
 
@@ -174,9 +176,7 @@ public class StoneCarver : MonoBehaviour
 		if (mainCamera == null || Mouse.current == null)
 			return;
 
-		Ray ray = mainCamera.ScreenPointToRay(
-			Mouse.current.position.ReadValue()
-		);
+		Ray ray = mainCamera.ScreenPointToRay(Mouse.current.position.ReadValue());
 
 		bool isClicking = Mouse.current.leftButton.isPressed;
 
@@ -185,25 +185,41 @@ public class StoneCarver : MonoBehaviour
 			if (waterEffect != null && waterEffect.isPlaying)
 				waterEffect.Stop();
 
+			if (waterAudio != null && waterAudio.isPlaying)
+				waterAudio.Stop();
+
+			if (carvingAudio != null && carvingAudio.isPlaying)
+			{
+				carvingAudio.Stop();
+			}
 			return;
 		}
 
 		if (waterEffect != null && !waterEffect.isPlaying)
 			waterEffect.Play();
 
+		if (waterAudio != null && !waterAudio.isPlaying)
+			waterAudio.Play();
+
 		if (Physics.Raycast(ray, out RaycastHit hit, waterRange))
 		{
 			if (hit.collider.gameObject == gameObject)
 			{
 				CarveStone(hit.point);
+				if (waterSplashEffect != null && !waterSplashEffect.isPlaying)
+				{
+					waterSplashEffect.transform.position = hit.point;
+
+					waterSplashEffect.transform.rotation = Quaternion.LookRotation(hit.normal);
+
+					waterSplashEffect.Play();
+				}
 
 				if (waterEffect != null && !isCleared)
 				{
-					waterEffect.transform.position =
-						hit.point - ray.direction * waterDistance;
+					waterEffect.transform.position = hit.point - ray.direction * waterDistance;
 
-					waterEffect.transform.rotation =
-						Quaternion.LookRotation(ray.direction);
+					waterEffect.transform.rotation = Quaternion.LookRotation(ray.direction);
 				}
 			}
 		}
@@ -211,30 +227,22 @@ public class StoneCarver : MonoBehaviour
 
 	void CarveStone(Vector3 worldPoint)
 	{
-		Vector3 localPoint =
-			transform.InverseTransformPoint(worldPoint);
+		Vector3 localPoint = transform.InverseTransformPoint(worldPoint);
 
 		for (int i = 0; i < vertices.Length; i++)
 		{
-			float distance =
-				Vector3.Distance(vertices[i], localPoint);
+			float distance = Vector3.Distance(vertices[i], localPoint);
 
 			if (distance < carveRadius)
 			{
 				float strength = 1f - distance / carveRadius;
 
-				// 中心ほど深く、縁はなだらかに削る
 				strength = strength * strength *
 					(3f - 2f * strength);
 
-				// 小さな不規則さを加える
-				float variation = Mathf.PerlinNoise(
-					vertices[i].x * 18f + 10f,
-					vertices[i].y * 18f + 10f
-				);
+				float variation = Mathf.PerlinNoise( vertices[i].x * 18f + 10f, vertices[i].y * 18f + 10f);
 
-				float depth = carveStrength * strength *
-					Mathf.Lerp(0.75f, 1.25f, variation);
+				float depth = carveStrength * strength * Mathf.Lerp(0.75f, 1.25f, variation);
 
 				vertices[i] -= vertices[i].normalized * depth;
 			}
@@ -246,6 +254,11 @@ public class StoneCarver : MonoBehaviour
 
 		meshCollider.sharedMesh = null;
 		meshCollider.sharedMesh = mesh;
+
+		if (carvingAudio != null && !carvingAudio.isPlaying)
+		{
+			carvingAudio.Play();
+		}
 
 		UpdateRemaining();
 	}
@@ -272,9 +285,7 @@ public class StoneCarver : MonoBehaviour
 	{
 		float currentSize = CalculateStoneSize();
 
-		float remaining = initialStoneSize > 0f
-			? Mathf.Clamp01(currentSize / initialStoneSize)
-			: 0f;
+		float remaining = initialStoneSize > 0f ? Mathf.Clamp01(currentSize / initialStoneSize) : 0f;
 
 		if (completionSlider != null)
 			completionSlider.value = remaining;
@@ -283,10 +294,16 @@ public class StoneCarver : MonoBehaviour
 		if (remaining <= remainingThreshold && !isCleared)
 		{
 			isCleared = true;
+			GameTimer.StopTimer();
 
 			if (waterEffect != null)
 			{
 				waterEffect.Stop();
+			}
+
+			if (clearAudio != null)
+			{
+				clearAudio.Play();
 			}
 
 			if (stoneBreakEffect != null)
@@ -303,7 +320,14 @@ public class StoneCarver : MonoBehaviour
 
 		System.Collections.IEnumerator ClearAfterEffect()
 		{
-			yield return new WaitForSeconds(1f);
+			// クリア音が再生され終わるまで待つ
+			if (clearAudio != null && clearAudio.clip != null)
+			{
+				yield return new WaitWhile(() => clearAudio.isPlaying);
+			}
+
+			yield return new WaitForSeconds(0.5f);
+
 			SceneManager.LoadScene(clearSceneName);
 		}
 	}

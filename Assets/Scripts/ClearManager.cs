@@ -1,30 +1,51 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using System.Collections;
+using TMPro;
 
-public class ClearManager : MonoBehaviour
+public class ClearSceneManager : MonoBehaviour
 {
+	[SerializeField] private string gameSceneName = "GameScene";
+	[SerializeField] private string titleSceneName = "TitleScene";
+	[SerializeField] private AudioSource buttonAudio;
+	[SerializeField] private TMP_Text clearTimeText;
 
-	[SerializeField] private string GameScene = "GameScene";
-	[SerializeField] private string TitleScene = "TitleScene";
+	private bool isLoading = false;
 
-	// Start is called once before the first execution of Update after the MonoBehaviour is created
-	void Start()
-    {
-        
-    }
+	private void Start()
+	{
+		if (clearTimeText != null)
+		{
+			clearTimeText.text = "クリアタイム：" + GameTimer.ClearTime.ToString("F2") + "秒";
+		}
+	}
 
-    // Update is called once per frame
-    void Update()
-    {
-        
-    }
 	public void RetryGame()
 	{
-		SceneManager.LoadScene(GameScene);
+		if (!isLoading)
+		{
+			StartCoroutine(LoadSceneAfterSound(gameSceneName));
+		}
 	}
 
 	public void ReturnToTitle()
 	{
-		SceneManager.LoadScene(TitleScene);
+		if (!isLoading)
+		{
+			StartCoroutine(LoadSceneAfterSound(titleSceneName));
+		}
+	}
+
+	private IEnumerator LoadSceneAfterSound(string sceneName)
+	{
+		isLoading = true;
+
+		if (buttonAudio != null && buttonAudio.clip != null)
+		{
+			buttonAudio.Play();
+			yield return new WaitWhile(() => buttonAudio.isPlaying);
+		}
+
+		SceneManager.LoadScene(sceneName);
 	}
 }
